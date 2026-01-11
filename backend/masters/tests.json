@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "name": "Test get categories",
+      "method": "GET",
+      "path": "/?action=categories",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "categories": []
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Test get masters list",
+      "method": "GET",
+      "path": "/?action=list",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "masters": [],
+        "count": 0
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

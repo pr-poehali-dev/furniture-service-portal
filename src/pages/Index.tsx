@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,6 +7,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Icon from '@/components/ui/icon';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import AuthModal from '@/components/AuthModal';
+import FiltersPanel from '@/components/FiltersPanel';
+import { masters as mastersApi, storage, Master, Category } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
 
 const categories = [
   { name: 'Кухни', icon: 'ChefHat' },
@@ -95,7 +99,74 @@ const masters = [
 export default function Index() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-  const [selectedMaster, setSelectedMaster] = useState<typeof masters[0] | null>(null);
+  const [selectedMaster, setSelectedMaster] = useState<Master | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [mastersList, setMastersList] = useState<Master[]>([]);
+  const [categoriesList, setCategoriesList] = useState<Category[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const token = storage.getItem('token');
+    const userStr = storage.getItem('user');
+    if (token && userStr) {
+      setCurrentUser(JSON.parse(userStr));
+    }
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      const [mastersData, categoriesData] = await Promise.all([
+        mastersApi.getList(),
+        mastersApi.getCategories(),
+      ]);
+      setMastersList(mastersData.masters);
+      setCategoriesList(categoriesData.categories);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось загрузить данные',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFilterChange = async (filters: any) => {
+    setIsLoading(true);
+    try {
+      const { masters } = await mastersApi.getList(filters);
+      setMastersList(masters);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось применить фильтры',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAuthSuccess = (user: any, token: string) => {
+    setCurrentUser(user);
+  };
+
+  const handleLogout = () => {
+    storage.removeItem('token');
+    storage.removeItem('user');
+    setCurrentUser(null);
+    toast({
+      title: 'Выход выполнен',
+      description: 'Вы вышли из системы',
+    });
+  };
+
+  const displayMasters = mastersList.length > 0 ? mastersList : masters;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
@@ -112,8 +183,22 @@ export default function Index() {
             <a href="#" className="text-sm font-medium hover:text-primary transition-colors">О сервисе</a>
           </nav>
           <div className="flex items-center gap-3">
-            <Button variant="ghost">Войти</Button>
-            <Button>Регистрация</Button>
+            {currentUser ? (
+              <>
+                <span className="text-sm text-muted-foreground hidden md:block">
+                  {currentUser.full_name}
+                </span>
+                <Button variant="ghost" onClick={handleLogout}>
+                  <Icon name="LogOut" size={16} className="mr-2" />
+                  Выход
+                </Button>
+              </>
+            ) : (
+              <Button onClick={() => setAuthModalOpen(true)}>
+                <Icon name="LogIn" size={16} className="mr-2" />
+                Войти
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -154,7 +239,7 @@ export default function Index() {
       <section className="container mx-auto px-4 py-12">
         <h2 className="text-3xl font-bold mb-8 text-center">Категории услуг</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          {categories.map((category) => (
+          {(categoriesList.length > 0 ? categoriesList : categories).map((category) => (
             <Card 
               key={category.name}
               className={`hover-scale cursor-pointer transition-all ${
@@ -174,26 +259,30 @@ export default function Index() {
       <section className="container mx-auto px-4 py-12">
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-3xl font-bold">Лучшие мастера</h2>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Icon name="SlidersHorizontal" size={16} className="mr-2" />
-              Фильтры
-            </Button>
-          </div>
+          <FiltersPanel
+            onFilterChange={handleFilterChange}
+            categories={categoriesList.length > 0 ? categoriesList : categories}
+          />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {masters.map((master) => (
+        {isLoading ? (
+          <div className="text-center py-12">
+            <Icon name="Loader2" size={48} className="mx-auto animate-spin text-primary" />
+            <p className="mt-4 text-muted-foreground">Загрузка мастеров...</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {displayMasters.map((master) => (
             <Card key={master.id} className="hover-scale overflow-hidden animate-fade-in">
               <CardHeader className="pb-3">
                 <div className="flex items-start gap-3">
                   <Avatar className="h-14 w-14">
-                    <AvatarImage src={master.avatar} alt={master.name} />
-                    <AvatarFallback>{master.name.charAt(0)}</AvatarFallback>
+                    <AvatarImage src={master.avatar_url || `https://i.pravatar.cc/150?u=${master.id}`} alt={master.full_name} />
+                    <AvatarFallback>{master.full_name?.charAt(0)}</AvatarFallback>
                   </Avatar>
                   <div className="flex-1">
                     <CardTitle className="text-lg flex items-center gap-2">
-                      {master.name}
+                      {master.full_name}
                       {master.verified && (
                         <Icon name="BadgeCheck" size={16} className="text-primary" />
                       )}
@@ -205,31 +294,35 @@ export default function Index() {
               <CardContent className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Icon name="Star" size={16} className="text-yellow-500 fill-yellow-500" />
-                  <span className="font-semibold">{master.rating}</span>
-                  <span className="text-sm text-muted-foreground">({master.reviews} отзывов)</span>
+                  <span className="font-semibold">{master.rating?.toFixed(1) || '0.0'}</span>
+                  <span className="text-sm text-muted-foreground">({master.reviews_count || 0} отзывов)</span>
                 </div>
                 <div className="flex gap-2 text-sm text-muted-foreground">
                   <Icon name="MapPin" size={14} />
                   <span>{master.city}</span>
                 </div>
-                <div className="flex gap-2 text-sm text-muted-foreground">
-                  <Icon name="Briefcase" size={14} />
-                  <span>Опыт: {master.experience}</span>
-                </div>
+                {master.experience_years && (
+                  <div className="flex gap-2 text-sm text-muted-foreground">
+                    <Icon name="Briefcase" size={14} />
+                    <span>Опыт: {master.experience_years} {master.experience_years === 1 ? 'год' : 'лет'}</span>
+                  </div>
+                )}
                 <div className="flex gap-2 text-sm">
-                  <Badge variant="secondary">{master.completed} проектов</Badge>
+                  <Badge variant="secondary">{master.completed_projects || 0} проектов</Badge>
                 </div>
-                <div className="grid grid-cols-3 gap-2 pt-2">
-                  {master.portfolio.slice(0, 3).map((img, idx) => (
-                    <div key={idx} className="aspect-square rounded overflow-hidden">
-                      <img 
-                        src={img} 
-                        alt={`Работа ${idx + 1}`}
-                        className="w-full h-full object-cover hover:scale-110 transition-transform"
-                      />
-                    </div>
-                  ))}
-                </div>
+                {master.portfolio && master.portfolio.length > 0 && (
+                  <div className="grid grid-cols-3 gap-2 pt-2">
+                    {master.portfolio.slice(0, 3).map((item, idx) => (
+                      <div key={idx} className="aspect-square rounded overflow-hidden">
+                        <img 
+                          src={typeof item === 'string' ? item : item.url} 
+                          alt={typeof item === 'object' ? item.title || `Работа ${idx + 1}` : `Работа ${idx + 1}`}
+                          className="w-full h-full object-cover hover:scale-110 transition-transform"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
               <CardFooter className="gap-2">
                 <Dialog>
@@ -348,9 +441,16 @@ export default function Index() {
                 </Button>
               </CardFooter>
             </Card>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
+
+      <AuthModal
+        open={authModalOpen}
+        onOpenChange={setAuthModalOpen}
+        onSuccess={handleAuthSuccess}
+      />
 
       <section className="bg-muted/50 py-16 mt-16">
         <div className="container mx-auto px-4">
